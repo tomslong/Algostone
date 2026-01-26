@@ -1,0 +1,1 @@
+"""AlgoStone Backend Application."""

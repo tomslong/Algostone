@@ -1,0 +1,23 @@
+# AlgoStone 本地开发环境
+# 只启动数据库服务，前后端在本地运行
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: algostone-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=algostone
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
