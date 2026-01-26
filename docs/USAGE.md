@@ -1,90 +1,324 @@
-# AlgoStone 系统使用说明
+# AlgoStone API 使用指南
 
-## 1. 系统简介
-AlgoStone 是一个面向大学生的算法学习智能体，提供代码调试、错误诊断、阶梯式提示和算法概念解答等功能。
+> 本文档面向开发者，介绍如何通过 API 与 AlgoStone 系统交互。
 
-## 2. 环境要求
-- Docker & Docker Compose
-- Python 3.10+ (本地开发)
-- Node.js 18+ (前端开发)
+**环境搭建请参考** [SETUP.md](./SETUP.md)
 
-## 3. 快速启动
+---
 
-### 3.1 使用 Docker Compose 启动（推荐）
-在项目根目录下运行：
-```bash
-docker-compose up -d
+## API 基础信息
+
 ```
-这将启动以下服务：
-- 后端 API: http://localhost:8000
-- 数据库 (PostgreSQL): localhost:5432
-- 缓存 (Redis): localhost:6379
-
-### 3.2 本地开发启动
-1. **启动依赖服务**：
-   ```bash
-   docker-compose up -d db redis
-   ```
-
-2. **启动后端**：
-   ```bash
-   cd backend
-   uv sync  # 安装依赖
-   uv run uvicorn app.main:app --reload
-   ```
-
-## 4. 功能使用指南
-
-### 4.1 提交代码调试
-- **接口**: `POST /api/chat/send`
-- **场景**: 当你写好了代码（或部分代码）想验证是否正确，或遇到报错无法解决时。
-- **参数**:
-  - `message`: "我的代码报错了，帮我看看"
-  - `code`: (你的Python代码)
-- **系统反馈**:
-  - 如果有错误，系统会指出错误类型和原因。
-  - 系统不会直接给出修复后的代码，而是通过"阶梯式提示"引导你自己发现问题。
-
-### 4.2 询问算法概念
-- **接口**: `POST /api/chat/send`
-- **场景**: 遇到不懂的算法名词，如"什么是动态规划？"。
-- **参数**:
-  - `message`: "什么是动态规划？"
-- **系统反馈**:
-  - 系统会结合内置知识库（RAG），用通俗易懂的语言解释概念，并提供示例。
-
-### 4.3 获取解题提示
-- **接口**: `POST /api/chat/send`
-- **场景**: 做题没有思路，需要一点灵感。
-- **参数**:
-  - `message`: "这道题怎么做？给点提示"
-- **系统反馈**:
-  - 系统会提供 Level 1 提示（解题思路/算法方向）。
-  - 如果仍不明白，再次询问可获取 Level 2（关键步骤）和 Level 3（伪代码）提示。
-
-## 5. 配置说明
-配置文件位于 `backend/.env` (可参考 `.env.example`)。
-主要配置项：
-- `DATABASE_URL`: 数据库连接串
-- `OPENAI_API_KEY`: LLM API密钥
-- `JUDGE0_API_URL`: 代码沙盒地址
-
-## 6. 题目数据加载
-题目数据会存储在 `backend/data/problems.db`（SQLite）中。
-如果数据库为空或数量不足，会在首次访问 `/api/problems?limit=XXX` 时自动从 GitHub 的 `merged_problems.json` 拉取数据并写入 SQLite。
-默认拉取上限为 500，可通过请求参数 `limit` 调整。
-
-该拉取方式不依赖 GitHub Token，但首次拉取的数据量较大。
-
-建议将 `backend/data` 作为持久化目录保留；如果删除 Docker 数据或挂载目录，题目数据会被清空，需要重新拉取。
-也可以手动执行：
-
-```bash
-python backend/data/fetch_problems.py
+Base URL: http://localhost:8001
+Content-Type: application/json
 ```
 
-## 7. 常见问题
-- **Q: 代码执行超时？**
-  - A: 检查代码是否有死循环。沙盒默认限制执行时间为 2 秒。
-- **Q: 提示不够准确？**
-  - A: 尝试更详细地描述你的问题，或者提供相关的题目ID（如果有）。
+---
+
+## 1. 流式聊天接口
+
+### 接口信息
+
+```
+POST /api/chat/stream
+```
+
+### 功能
+
+与 AI 助手进行对话，支持流式响应（SSE）。支持代码调试、概念询问、阶梯提示等功能。
+
+### 请求参数
+
+```json
+{
+  "message": "我的代码报错了，帮我看看",
+  "code": "def twoSum(nums, target):\n    ...",
+  "language": "python",
+  "problem_id": "two-sum",
+  "session_id": "optional-session-id",
+  // 可选：动态 LLM 配置（覆盖后端默认配置）
+  "api_key": "your-api-key",
+  "model_name": "deepseek-reasoner",
+  "api_base": "https://api.deepseek.com/v1"
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| message | string | 是 | 用户消息 |
+| code | string | 否 | 用户代码（有代码时触发执行） |
+| language | string | 否 | 编程语言，默认 `python` |
+| problem_id | string | 否 | 关联的题目ID |
+| session_id | string | 否 | 会话ID（首次请求自动生成） |
+| api_key | string | 否 | 自定义 LLM API Key |
+| model_name | string | 否 | 自定义模型名称 |
+| api_base | string | 否 | 自定义 API 地址 |
+
+### 响应格式 (Server-Sent Events)
+
+```
+data: {"type": "start", "session_id": "xxx"}
+
+data: {"type": "intent", "intent": "submit_code"}
+
+data: {"type": "diagnosis", "has_error": true, "error_type": "IndexError"}
+
+data: {"type": "reasoning", "content": "思考过程..."}  # DeepSeek-R1 等推理模型
+
+data: {"type": "content", "content": "回复片段"}
+
+data: {"type": "end"}
+```
+
+### 使用示例
+
+#### cURL
+
+```bash
+curl -N http://localhost:8001/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "什么是动态规划？",
+    "code": "",
+    "language": "python"
+  }'
+```
+
+#### Python
+
+```python
+import requests
+import json
+
+url = "http://localhost:8001/api/chat/stream"
+data = {
+    "message": "我的代码报错了",
+    "code": "def twoSum(nums, target):\n    for i in range(len(nums)):\n        for j in range(i+1, len(nums)):\n            if nums[i] + nums[j] == target:\n                return [i, j]",
+    "language": "python"
+}
+
+with requests.stream("POST", url, json=data) as response:
+    for line in response.iter_lines():
+        if line.startswith(b"data: "):
+            event = json.loads(line[6:])
+            print(event)
+```
+
+#### JavaScript
+
+```javascript
+const response = await fetch('http://localhost:8001/api/chat/stream', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    message: '我的代码报错了',
+    code: 'def twoSum(nums, target): ...',
+    language: 'python'
+  })
+});
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  const text = decoder.decode(value);
+  const lines = text.split('\n');
+
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const event = JSON.parse(line.slice(6));
+      console.log(event);
+    }
+  }
+}
+```
+
+---
+
+## 2. 单次代码执行
+
+### 接口信息
+
+```
+POST /api/execute
+```
+
+### 功能
+
+执行代码并返回结果，不涉及 AI 对话。
+
+### 请求参数
+
+```json
+{
+  "code": "print('Hello World')",
+  "language": "python"
+}
+```
+
+### 响应示例
+
+```json
+{
+  "success": true,
+  "output": "Hello World\n",
+  "error": null,
+  "execution_time": 0.12
+}
+```
+
+---
+
+## 3. 提交所有测试用例
+
+### 接口信息
+
+```
+POST /api/submit
+```
+
+### 功能
+
+运行所有测试用例，判断代码是否通过。
+
+### 请求参数
+
+```json
+{
+  "code": "def solution(): ...",
+  "language": "python",
+  "problem_id": "two-sum"
+}
+```
+
+### 响应示例
+
+```json
+{
+  "passed": true,
+  "total_cases": 10,
+  "passed_cases": 10,
+  "failed_cases": [],
+  "execution_results": [...]
+}
+```
+
+---
+
+## 4. 题目列表
+
+### 接口信息
+
+```
+GET /api/problems
+```
+
+### 功能
+
+获取算法题列表。
+
+### 查询参数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| limit | int | 返回数量，默认 50 |
+| offset | int | 偏移量，默认 0 |
+| difficulty | string | 筛选难度：Easy/Medium/Hard |
+| search | string | 搜索关键词 |
+
+### 响应示例
+
+```json
+{
+  "problems": [
+    {
+      "id": "two-sum",
+      "title": "两数之和",
+      "difficulty": "Easy",
+      "description": "给定一个整数数组 nums...",
+      "examples": [...]
+    }
+  ],
+  "total": 200
+}
+```
+
+---
+
+## 5. 会话历史管理
+
+### 获取历史
+
+```
+GET /api/chat/history/{session_id}
+```
+
+### 删除会话
+
+```
+DELETE /api/chat/history/{session_id}
+```
+
+---
+
+## 支持的编程语言
+
+| 语言 | language 值 | Piston ID |
+|------|-------------|-----------|
+| Python | `python` | 71 |
+| JavaScript | `javascript` | 63 |
+| Java | `java` | 62 |
+| C++ | `cpp` | 54 |
+| Go | `go` | 79 |
+
+---
+
+## 错误类型映射
+
+| Python 异常 | 错误类型 |
+|-------------|----------|
+| `IndexError` | `IndexError` |
+| `KeyError` | `KeyError` |
+| `RecursionError` | `RecursionError` |
+| `SyntaxError` | `SyntaxError` |
+| `IndentationError` | `IndentationError` |
+| `TypeError` | `TypeError` |
+| `ValueError` | `ValueError` |
+| `NameError` | `NameError` |
+
+---
+
+## 常见问题
+
+### Q: 如何使用 DeepSeek-R1 推理模型？
+
+在请求中传入动态配置：
+
+```json
+{
+  "message": "帮我分析这道题",
+  "model_name": "deepseek-reasoner",
+  "api_base": "https://api.deepseek.com/v1",
+  "api_key": "your-deepseek-api-key"
+}
+```
+
+### Q: 流式响应如何处理推理过程？
+
+监听 `type: "reasoning"` 事件，模型会在返回内容前先发送思考过程。
+
+### Q: 代码执行超时怎么办？
+
+默认超时为 10 秒。检查代码是否有死循环或无限递归。
+
+---
+
+## 相关文档
+
+- [SETUP.md](./SETUP.md) - 开发环境搭建
+- [USER_GUIDE.md](./USER_GUIDE.md) - 终端用户使用指南
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - 系统架构设计
+- [API.md](./API.md) - 完整 API 参考
