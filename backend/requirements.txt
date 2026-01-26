@@ -51,8 +51,7 @@ passlib>=1.7.4
 argon2-cffi>=23.1.0
 
 # Security
-fastapi-security>=0.5.0
-secure-header>=0.4.0
+# Note: secure-header and fastapi-security removed due to dependency conflicts
 
 # Testing
 pytest>=8.0.0
