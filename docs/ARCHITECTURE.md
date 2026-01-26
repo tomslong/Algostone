@@ -16,9 +16,9 @@ graph TB
 
     subgraph "API网关层 Backend API"
         FastAPI[FastAPI Routes]
-        ChatRoute[POST /api/chat/stream]
+        ChatRoute[POST /api/v1/chat/stream]
         ExecRoute[POST /api/execute]
-        ProbRoute[GET /api/problems]
+        ProbRoute[GET /api/v1/problems]
     end
 
     subgraph "业务逻辑层 LangGraph Agent"
@@ -30,7 +30,7 @@ graph TB
     end
 
     subgraph "外部服务"
-        Piston[Piston 代码沙箱]
+        Piston[Piston 代码沙箱<br/>localhost:27123]
         LLM[LLM API<br/>OpenAI兼容]
         PG[(PostgreSQL)]
         R[(Redis)]
@@ -63,14 +63,14 @@ graph TB
 |------|------|------|
 | React | 18+ | UI框架 |
 | TypeScript | 5+ | 类型安全 |
-| Vite | 6+ | 构建工具 |
+| Vite | 5+ | 构建工具 |
 | Monaco Editor | - | 代码编辑器 |
 | Shadcn UI | - | UI组件库 |
 
 ### 后端
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| Python | 3.10+ | 运行时 |
+| Python | 3.11+ | 运行时 |
 | FastAPI | 0.115+ | Web框架 |
 | LangGraph | 0.3+ | Agent工作流 |
 | LangChain | 1.0+ | LLM集成 |
@@ -79,10 +79,10 @@ graph TB
 ### 基础设施
 | 组件 | 技术 | 用途 |
 |------|------|------|
-| 数据库 | PostgreSQL + pgvector | 数据存储、向量检索 |
-| 缓存 | Redis | 会话缓存 |
+| 数据库 | PostgreSQL | 数据存储 |
+| 缓存 | Redis | 会话缓存、速率限制 |
 | 代码沙箱 | Piston API | 安全代码执行 |
-| 容器化 | Docker + Docker Compose | 开发环境 |
+| 状态持久化 | SQLite | LangGraph checkpoint |
 
 ---
 
@@ -128,6 +128,7 @@ class AgentState(TypedDict):
     has_error: bool
     error_type: Optional[str]
     error_message: Optional[str]
+    error_line: Optional[int]
 
     # 提示系统
     current_hint_level: int
@@ -188,26 +189,6 @@ def get_dynamic_llm(
     )
 ```
 
-#### 推理内容显示
-
-支持 DeepSeek-R1 等推理模型的 `reasoning_content` 字段：
-
-```mermaid
-sequenceDiagram
-    participant F as 前端
-    participant B as 后端
-    participant L as LLM API
-
-    F->>B: POST /api/chat/stream
-    B->>L: astream_events(messages)
-    L-->>B: on_chat_model_end (reasoning_content)
-    L-->>B: on_chat_model_stream (content chunks)
-    B-->>F: SSE: type=reasoning
-    B-->>F: SSE: type=content
-```
-
-前端在消息中显示可折叠的"思考过程"面板。
-
 ---
 
 ### 3. 代码沙箱
@@ -217,9 +198,23 @@ sequenceDiagram
 使用 Piston API 执行代码，提供：
 
 - 安全隔离（独立容器）
-- 超时控制（默认 10 秒）
-- 多语言支持（Python, JavaScript, Go 等）
+- 超时控制（默认 60 秒）
+- **当前支持：Python（更多语言计划中）**
 - 错误类型映射
+
+#### Piston 服务配置
+
+Piston 作为独立服务运行在 `http://localhost:27123`
+
+```bash
+# 克隆并启动 Piston 服务
+git clone https://github.com/engineer-man/piston.git
+cd piston
+docker-compose up -d
+
+# 验证运行状态
+curl http://localhost:27123/api/v2/runtimes
+```
 
 #### 执行流程
 
@@ -258,12 +253,20 @@ sequenceDiagram
 
 | 路由 | 方法 | 功能 |
 |------|------|------|
-| `/chat/send` | POST | 非流式聊天 |
-| `/chat/stream` | POST | 流式聊天 (SSE) |
-| `/chat/history/{session_id}` | GET/DELETE | 会话历史管理 |
-| `/execute` | POST | 单次代码执行 |
-| `/submit` | POST | 提交代码（所有测试） |
-| `/problems` | GET | 获取题目列表 |
+| `/api/v1/chat/send` | POST | 非流式聊天 |
+| `/api/v1/chat/stream` | POST | 流式聊天 (SSE) |
+| `/api/v1/chat/simple` | POST | 直接 LLM 调用（跳过 LangGraph） |
+| `/api/v1/chat/history/{session_id}` | GET | 获取会话历史 |
+| `/api/v1/chat/history/{session_id}` | DELETE | 清空会话历史 |
+| `/api/v1/chat/session/{session_id}` | GET | 获取会话状态 |
+| `/api/v1/chat/session/{session_id}` | DELETE | 删除会话 |
+| `/api/execute` | POST | 单次代码执行 |
+| `/api/v1/submit` | POST | 提交代码（所有测试） |
+| `/api/v1/problems` | GET | 获取题目列表 |
+| `/api/v1/problems/{task_id}` | GET | 获取题目详情 |
+| `/api/v1/user/code` | POST | 保存用户代码 |
+| `/api/v1/user/code/{device_id}/{problem_id}` | GET | 获取用户代码 |
+| `/api/v1/user/ac-problems/{device_id}` | GET | 获取已通过题目 |
 | `/health` | GET | 健康检查 |
 
 #### 流式聊天响应格式
@@ -289,26 +292,26 @@ data: {"type": "end"}
 **文件位置**: `backend/app/models/sql_models.py`
 
 ```sql
--- 题目表
-CREATE TABLE problems (
+-- 用户表 (预留，当前使用匿名系统)
+CREATE TABLE users (
     id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    difficulty TEXT,
-    description TEXT,
-    examples JSONB,
-    constraints TEXT,
-    starter_code TEXT
+    username TEXT UNIQUE NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    hashed_password TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
 );
 
--- 用户代码提交表
-CREATE TABLE code_submissions (
-    id SERIAL PRIMARY KEY,
+-- 聊天会话表
+CREATE TABLE chat_sessions (
+    id TEXT PRIMARY KEY,
     user_id TEXT,
-    problem_id TEXT,
-    code TEXT,
-    language TEXT,
-    passed BOOLEAN,
-    created_at TIMESTAMP
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    history JSONB DEFAULT '[]',
+    last_message TEXT,
+    problem_id TEXT
 );
 
 -- 聊天消息表
@@ -321,11 +324,33 @@ CREATE TABLE chat_messages (
     created_at TIMESTAMP
 );
 
+-- 用户代码表
+CREATE TABLE user_code (
+    id SERIAL PRIMARY KEY,
+    device_id TEXT,
+    problem_id TEXT,
+    code TEXT,
+    language TEXT,
+    is_ac BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
 -- 用户进度表
 CREATE TABLE user_progress (
-    user_id TEXT PRIMARY KEY,
-    solved_problems TEXT[],  -- 已解决的题目ID数组
-    last_active TIMESTAMP
+    device_id TEXT PRIMARY KEY,
+    current_problem_id TEXT,
+    last_active_at TIMESTAMP
+);
+
+-- 题目缓存表
+CREATE TABLE problems (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    slug TEXT UNIQUE,
+    difficulty TEXT,
+    tags JSONB,
+    content TEXT
 );
 ```
 
@@ -346,7 +371,7 @@ sequenceDiagram
     participant D as PostgreSQL
 
     U->>F: 提交代码 + "帮我看看"
-    F->>A: POST /api/chat/stream
+    F->>A: POST /api/v1/chat/stream
 
     A->>L: 启动 Agent 工作流
     L->>L: 意图识别 → submit_code
@@ -414,17 +439,20 @@ graph TB
 
 ### 1. 多语言支持
 
-当前使用 Piston API，原生支持 70+ 编程语言。扩展只需：
+**当前状态**：仅支持 Python
+
+Piston API 原生支持 70+ 编程语言，未来扩展只需：
 
 1. 前端添加语言选择器
-2. 更新 `language_id` 参数
+2. 更新 `language` 参数
+3. 添加对应语言的错误类型映射
 
 ### 2. 自定义题库
 
 已支持通过 API 上传题目：
 
 ```python
-POST /api/problems
+POST /api/v1/problems
 {
     "title": "两数之和",
     "difficulty": "Easy",
@@ -439,8 +467,7 @@ POST /api/problems
 **文件位置**: `backend/langgraph_agent/rag.py`
 
 - Parent Document Retrieval 策略
-- PostgreSQL + pgvector 向量存储
-- 支持题解、知识点检索
+- 向量检索功能（计划中）
 
 ---
 
@@ -455,14 +482,16 @@ POST /api/problems
 | 输入验证 | ✅ Pydantic |
 | SQL 注入防护 | ✅ 参数化查询 |
 | 错误信息脱敏 | ✅ sanitize_for_log |
+| CORS 保护 | ✅ 明确指定允许的来源 |
+| 安全响应头 | ✅ XSS/CSP/Frame 保护 |
 
 ### 待实现
 
 | 安全措施 | 状态 |
 |----------|------|
-| JWT 认证 | ⏳ TODO |
-| CORS 白名单 | ⏳ TODO |
-| 敏感数据加密 | ⏳ TODO |
+| 用户认证 | ⏳ 计划中（当前使用 device_id 匿名系统）|
+| JWT Token | ⏳ 计划中 |
+| 敏感数据加密 | ⏳ 计划中 |
 
 ---
 
@@ -493,7 +522,7 @@ POST /api/problems
 | 指标 | 目标 |
 |------|------|
 | API 响应时间 | P95 < 2s |
-| 代码执行时间 | < 10s |
+| 代码执行时间 | < 60s |
 | LLM 首字延迟 | < 5s |
 | 错误率 | < 1% |
 
@@ -501,7 +530,7 @@ POST /api/problems
 
 ## 相关文档
 
-- [部署指南](DEPLOYMENT.md) - 如何部署和运行系统
-- [用户指南](USER_GUIDE.md) - 终端用户使用说明
-- [API 文档](API.md) - API 接口详细说明
-- [产品需求文档](PRD.md) - 产品需求和功能定义
+- [SETUP.md](SETUP.md) - 开发环境搭建
+- [USAGE.md](USAGE.md) - API 使用指南
+- [USER_GUIDE.md](USER_GUIDE.md) - 终端用户使用说明
+- [API.md](API.md) - API 接口详细说明

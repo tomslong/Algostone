@@ -10,6 +10,7 @@
 
 ```
 Base URL: http://localhost:8001
+API Prefix: /api/v1
 Content-Type: application/json
 ```
 
@@ -20,7 +21,7 @@ Content-Type: application/json
 ### 接口信息
 
 ```
-POST /api/chat/stream
+POST /api/v1/chat/stream
 ```
 
 ### 功能
@@ -36,6 +37,7 @@ POST /api/chat/stream
   "language": "python",
   "problem_id": "two-sum",
   "session_id": "optional-session-id",
+  "conversation_history": [],
   // 可选：动态 LLM 配置（覆盖后端默认配置）
   "api_key": "your-api-key",
   "model_name": "deepseek-reasoner",
@@ -49,7 +51,8 @@ POST /api/chat/stream
 | code | string | 否 | 用户代码（有代码时触发执行） |
 | language | string | 否 | 编程语言，默认 `python` |
 | problem_id | string | 否 | 关联的题目ID |
-| session_id | string | 否 | 会话ID（首次请求自动生成） |
+| session_id | string | 是 | 会话ID |
+| conversation_history | list | 否 | 对话历史 |
 | api_key | string | 否 | 自定义 LLM API Key |
 | model_name | string | 否 | 自定义模型名称 |
 | api_base | string | 否 | 自定义 API 地址 |
@@ -75,12 +78,11 @@ data: {"type": "end"}
 #### cURL
 
 ```bash
-curl -N http://localhost:8001/api/chat/stream \
+curl -N http://localhost:8001/api/v1/chat/stream \
   -H "Content-Type: application/json" \
   -d '{
     "message": "什么是动态规划？",
-    "code": "",
-    "language": "python"
+    "session_id": "test-session"
   }'
 ```
 
@@ -90,11 +92,12 @@ curl -N http://localhost:8001/api/chat/stream \
 import requests
 import json
 
-url = "http://localhost:8001/api/chat/stream"
+url = "http://localhost:8001/api/v1/chat/stream"
 data = {
     "message": "我的代码报错了",
     "code": "def twoSum(nums, target):\n    for i in range(len(nums)):\n        for j in range(i+1, len(nums)):\n            if nums[i] + nums[j] == target:\n                return [i, j]",
-    "language": "python"
+    "language": "python",
+    "session_id": "test-session"
 }
 
 with requests.stream("POST", url, json=data) as response:
@@ -107,13 +110,14 @@ with requests.stream("POST", url, json=data) as response:
 #### JavaScript
 
 ```javascript
-const response = await fetch('http://localhost:8001/api/chat/stream', {
+const response = await fetch('http://localhost:8001/api/v1/chat/stream', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
     message: '我的代码报错了',
     code: 'def twoSum(nums, target): ...',
-    language: 'python'
+    language: 'python',
+    session_id: 'test-session'
   })
 });
 
@@ -138,7 +142,37 @@ while (true) {
 
 ---
 
-## 2. 单次代码执行
+## 2. 非流式聊天
+
+### 接口信息
+
+```
+POST /api/v1/chat/send
+```
+
+### 功能
+
+非流式聊天接口，等待完整响应后返回。
+
+### 请求参数
+
+与流式接口相同，但不需要 `conversation_history`（可选）。
+
+### 响应示例
+
+```json
+{
+  "message": "AI回复内容",
+  "hint_level": 1,
+  "code_execution_result": null,
+  "suggested_resources": [],
+  "intent": "submit_code"
+}
+```
+
+---
+
+## 3. 单次代码执行
 
 ### 接口信息
 
@@ -155,29 +189,37 @@ POST /api/execute
 ```json
 {
   "code": "print('Hello World')",
-  "language": "python"
+  "language": "python",
+  "test_cases": []
 }
 ```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| code | string | 是 | 要执行的代码 |
+| language | string | 否 | 编程语言，默认 `python` |
+| test_cases | array | 否 | 测试用例 |
 
 ### 响应示例
 
 ```json
 {
-  "success": true,
+  "status": "success",
   "output": "Hello World\n",
-  "error": null,
+  "error_type": null,
+  "error_message": null,
   "execution_time": 0.12
 }
 ```
 
 ---
 
-## 3. 提交所有测试用例
+## 4. 提交所有测试用例
 
 ### 接口信息
 
 ```
-POST /api/submit
+POST /api/v1/submit
 ```
 
 ### 功能
@@ -190,7 +232,9 @@ POST /api/submit
 {
   "code": "def solution(): ...",
   "language": "python",
-  "problem_id": "two-sum"
+  "test_cases": [
+    {"input": "", "expected_output": "result"}
+  ]
 }
 ```
 
@@ -198,22 +242,20 @@ POST /api/submit
 
 ```json
 {
-  "passed": true,
-  "total_cases": 10,
-  "passed_cases": 10,
-  "failed_cases": [],
-  "execution_results": [...]
+  "status": "success",
+  "output": "Case 1: ✓ Passed\nCase 2: ✓ Passed\n\n2/2 test cases passed\n\n🎉 All tests passed!",
+  "execution_time": 0.25
 }
 ```
 
 ---
 
-## 4. 题目列表
+## 5. 题目列表
 
 ### 接口信息
 
 ```
-GET /api/problems
+GET /api/v1/problems
 ```
 
 ### 功能
@@ -248,31 +290,79 @@ GET /api/problems
 
 ---
 
-## 5. 会话历史管理
+## 6. 用户代码管理
+
+### 保存代码
+
+```
+POST /api/v1/user/code
+```
+
+### 获取代码
+
+```
+GET /api/v1/user/code/{device_id}/{problem_id}
+```
+
+### 获取所有代码
+
+```
+GET /api/v1/user/code/{device_id}
+```
+
+### 获取已通过题目
+
+```
+GET /api/v1/user/ac-problems/{device_id}
+```
+
+### 保存进度
+
+```
+POST /api/v1/user/progress
+```
+
+### 获取进度
+
+```
+GET /api/v1/user/progress/{device_id}
+```
+
+---
+
+## 7. 会话历史管理
 
 ### 获取历史
 
 ```
-GET /api/chat/history/{session_id}
+GET /api/v1/chat/history/{session_id}
 ```
 
 ### 删除会话
 
 ```
-DELETE /api/chat/history/{session_id}
+DELETE /api/v1/chat/history/{session_id}
+```
+
+### 获取会话状态
+
+```
+GET /api/v1/chat/session/{session_id}
 ```
 
 ---
 
 ## 支持的编程语言
 
-| 语言 | language 值 | Piston ID |
-|------|-------------|-----------|
-| Python | `python` | 71 |
-| JavaScript | `javascript` | 63 |
-| Java | `java` | 62 |
-| C++ | `cpp` | 54 |
-| Go | `go` | 79 |
+> **注意：当前版本仅支持 Python，更多语言正在开发中**
+
+| 语言 | language 值 | 状态 |
+|------|-------------|------|
+| Python | `python` | ✅ 支持 |
+| JavaScript | `javascript` | ⏳ 计划中 |
+| Java | `java` | ⏳ 计划中 |
+| C++ | `cpp` | ⏳ 计划中 |
+| Go | `go` | ⏳ 计划中 |
 
 ---
 
@@ -312,7 +402,11 @@ DELETE /api/chat/history/{session_id}
 
 ### Q: 代码执行超时怎么办？
 
-默认超时为 10 秒。检查代码是否有死循环或无限递归。
+默认超时为 60 秒。检查代码是否有死循环或无限递归。
+
+### Q: device_id 如何获取？
+
+前端可以使用 `crypto.randomUUID()` 或类似方法生成唯一设备ID，存储在 localStorage 中。
 
 ---
 

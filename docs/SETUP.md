@@ -12,6 +12,25 @@
 
 ## 快速开始
 
+### 0. 启动 Piston 代码执行服务（必需）
+
+**Piston** 是代码执行沙箱服务，必须先启动：
+
+```bash
+# 克隆 Piston 仓库
+git clone https://github.com/engineer-man/piston.git
+cd piston
+
+# 启动 Piston 容器
+docker-compose up -d
+
+# 验证 Piston 运行状态
+curl http://localhost:27123/api/v2/runtimes
+
+# 返回到项目根目录
+cd ../..
+```
+
 ### 方法1: 使用 Docker Compose（推荐）
 
 1. **克隆项目**
@@ -29,13 +48,13 @@ cp .env.example .env
 
 3. **启动所有服务**
 ```bash
-docker-compose up
+docker-compose up -d
 ```
 
 4. **访问应用**
 - 前端: http://localhost:3000
-- 后端API: http://localhost:8000
-- API文档: http://localhost:8000/docs
+- 后端API: http://localhost:8001
+- API文档: http://localhost:8001/docs
 
 ---
 
@@ -178,8 +197,8 @@ docker pull python:3.11-slim
 **配置项**:
 ```bash
 DOCKER_ENABLED=true
-EXECUTION_TIMEOUT_SECONDS=5
-MAX_CODE_LENGTH=10000
+EXECUTION_TIMEOUT_SECONDS=60
+MAX_CODE_LENGTH=100000
 ```
 
 ### 6. 速率限制
@@ -306,8 +325,8 @@ RATE_LIMIT_CHAT_PER_MINUTE=30
 JUDGE0_API_URL=https://judge0-ce.p.rapidapi.com
 JUDGE0_LANGUAGE_ID=71
 DOCKER_ENABLED=true
-EXECUTION_TIMEOUT_SECONDS=5
-MAX_CODE_LENGTH=10000
+EXECUTION_TIMEOUT_SECONDS=60
+MAX_CODE_LENGTH=100000
 
 # ============================================================================
 # 安全头

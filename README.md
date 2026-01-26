@@ -27,12 +27,12 @@ AlgoStone 是一款智能算法学习平台，通过 AI 对话式引导帮助你
 
 ## 特性
 
-- **AI 智能助手** - 基于用户配置的 LLM API，提供个性化学习指导
-- **在线代码执行** - Piston 沙箱安全隔离，支持 Python 代码实时运行
+- **AI 智能助手** - 支持多种 LLM API（OpenAI/DeepSeek/通义千问等），可动态配置
+- **在线代码执行** - Piston 沙箱安全隔离，当前支持 Python（更多语言计划中）
 - **题目管理** - LeetCode 风格的算法题库，支持 Easy/Medium/Hard 分类
-- **进度追踪** - 自动保存代码，AC 状态实时显示
+- **进度追踪** - 匿名用户系统，自动保存代码，AC 状态实时显示
+- **流式响应** - SSE 实时流式输出，减少等待时间
 - **响应式设计** - 现代化 IDE 界面，可调节的侧边栏和面板布局
-- **性能优化** - Monaco Editor 懒加载，React.memo 优化
 
 ---
 
@@ -69,7 +69,8 @@ AlgoStone 是一款智能算法学习平台，通过 AI 对话式引导帮助你
 ### 启动 Piston 代码执行服务
 
 ```bash
-# 进入 Piston 目录
+# 克隆 Piston 仓库
+git clone https://github.com/engineer-man/piston.git
 cd piston
 
 # 启动 Piston 容器
@@ -120,10 +121,10 @@ uvicorn app.main:app --reload --port 8001
 cd frontend
 
 # 安装依赖
-npm install
+pnpm install
 
 # 启动开发服务器
-npm run dev
+pnpm dev
 
 # 访问 http://localhost:3000
 ```
@@ -134,33 +135,18 @@ npm run dev
 
 ```
 algostone/
-├── backend/                    # FastAPI 后端
-│   ├── app/
-│   │   ├── api/               # API 路由
-│   │   │   └── routes/        # chat, execute, problems, user...
-│   │   ├── core/              # 配置、数据库、安全
-│   │   ├── models/            # Pydantic 模型
-│   │   └── main.py            # 应用入口
-│   ├── sandbox/               # Piston 执行器封装
+├── backend/                      # FastAPI 后端
+│   ├── app/                      # API 路由、配置、模型
+│   ├── langgraph_agent/          # LangGraph Agent
+│   ├── sandbox/                  # Piston 执行器封装
 │   └── requirements.txt
 │
-├── frontend/                   # React 前端
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ide/           # IDE 组件
-│   │   │   └── ui/            # shadcn/ui 组件
-│   │   ├── contexts/          # React Context
-│   │   └── lib/               # 工具函数
-│   └── package.json
+├── frontend/                     # React 前端
+│   └── src/                      # 组件、页面、工具函数
 │
-├── docs/                       # 文档
+├── docs/                         # 文档
 ├── docker-compose.yml
 └── README.md
-
-# Piston 服务 (独立部署)
-../piston/                      # Piston 代码执行服务
-├── docker-compose.yaml         # 容器配置
-└── data/piston/packages/       # Python 运行时缓存
 ```
 
 ---
