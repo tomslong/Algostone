@@ -84,7 +84,7 @@ curl http://localhost:27123/api/v2/runtimes
 
 ```bash
 # 克隆项目
-git clone https://github.com/yourusername/algostone.git
+git clone https://github.com/tomslong/algostone.git
 cd algostone
 
 # 启动所有服务
